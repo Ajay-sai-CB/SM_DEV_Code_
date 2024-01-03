@@ -7,7 +7,6 @@ class SqlDataFetcher:
 
 
     def fetch_data(self, query_params, flag=0):
-        self.validate_input(query_params)
 
         data = None  # Initialize data variable
         error_message = None  # Variable to store the error message

@@ -2,8 +2,8 @@
 
 import azure.functions as func
 import json
-from code.validation_code.validation import QueryParameters, Validation
-from code.sql_data_fetcher_code.sql_data_fetcher import SqlDataFetcher
+from validation import QueryParameters, Validation
+from sql_data_fetcher import SqlDataFetcher
 
 # Define the connection string
 connection_string = (
@@ -24,7 +24,7 @@ data_fetcher = SqlDataFetcher(connection_string)
 app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
 
 # HTTP trigger route
-@app.route(route="http_trigger")
+@app.route(route="http_trigger", methods=["get"])
 def http_trigger(req: func.HttpRequest) -> func.HttpResponse:
     try:
         # Validate 'Account__c' parameter presence
