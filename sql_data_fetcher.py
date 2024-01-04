@@ -5,61 +5,70 @@ class SqlDataFetcher:
         self.connection_string = connection_string
         self.conn = None
 
+    def connect(self):
+        # Connect to the SQL Server database
+        self.conn = pyodbc.connect(self.connection_string)
 
-    def fetch_data(self, query_params, flag=0):
+    def disconnect(self):
+        # Close the database connection
+        if self.conn:
+            self.conn.close()
 
-        data = None  # Initialize data variable
-        error_message = None  # Variable to store the error message
+    def execute_sql_query(self, params, flag=0):
+        if not self.conn:
+            raise Exception("Database connection is not established. Call connect() method first.")
+
+        # Create a cursor
+        cursor = self.conn.cursor()
 
         try:
-            # Establish the connection
-            self.conn = pyodbc.connect(self.connection_string)
-            cursor = self.conn.cursor()
+            print(params)
+            # Define your SQL query
 
-            # Your SQL query to select data with specified conditions from query_params
-            select_query = f"SELECT * FROM {query_params.object_name} WHERE " \
-                           f"(Year_p >= 'Year={query_params.date_start_monthyear}' AND " \
-                           f"Year_p <= 'Year={query_params.date_end_monthyear}') AND " \
-                           f"(AccountID_p = 'AccountId={query_params.account_id}') " \
-                           f"ORDER BY AccountId_p " \
-                           f"OFFSET {query_params.page_number * query_params.page_size} ROWS " \
-                           f"FETCH NEXT {query_params.page_size} ROWS ONLY;"
 
-            # Execute the query to select data
-            cursor.execute(select_query)
+            query = f"""
+                    SELECT *
+                    FROM {params['object_name']}
+                    WHERE
+                    {'Year_p >= ' + f"'{params['start_year_param']}' AND " if params['start_year_param'] != 'Year=*' else ''}
+                    {'Year_p <= ' + f"'{params['end_year_param']}' AND " if params['end_year_param'] != 'Year=*' else ''}
+                    {'Month_p >= ' + f"'{params['start_month_param']}' AND " if params['start_month_param'] != 'Month=*' else ''}
+                    {'Month_p <= ' + f"'{params['end_month_param']}' AND " if params['end_month_param'] != 'Month=*' else ''}
+                    AccountID_p = '{params['account_id_param']}'
+                    ORDER BY AccountId_p
+                    OFFSET {params['offset_param']} ROWS FETCH NEXT {params['fetch_next_param']} ROWS ONLY;
+                """
+
+            print(query)
+
+ 
+
+            # Execute the query with parameters
+            
+            cursor.execute(query)
 
             # Fetch the results
             data = cursor.fetchall()
+            print(data)
 
-        except pyodbc.Error as e:
-            # Log the error details for debugging
-            error_message = f"PyODBC Error: {e}"
-            print(error_message)  # You can replace this with a logging mechanism if available
-            raise  # Re-raise the exception for higher-level error handling
+            # Check the flag and return data or error message based on the flag value
+            if flag == 1:
+                return bool(data)  # Return True if data is not empty, False otherwise
+            else:
+                return data
 
-        except Exception as ex:
-            # Log other unexpected exceptions
-            error_message = f"Unexpected Error: {ex}"
-            print(error_message)  # You can replace this with a logging mechanism if available
-            raise  # Re-raise the exception for higher-level error handling
+        except Exception as e:
+            # Handle exceptions and return error message
+            error_message = f"Error executing SQL query: {str(e)}"
+            if flag == 1:
+                return error_message
+            else:
+                raise Exception(error_message)
 
         finally:
-            # Close the connection if it's open
-            if self.conn:
-                self.conn.close()
+            # Close the cursor
+            cursor.close()
 
-        # Check the flag and return data or error message based on the flag value
-        if flag == 1:
-            if error_message:
-                return error_message
-            elif data:
-                return True
-            else:
-                return False
-        else:
-            return data
-
-# Assuming you have a QueryParameters class defined somewhere in your code
 class QueryParameters:
     def __init__(self, account_id, object_name, date_start_monthyear, date_end_monthyear, page_number, page_size):
         self.account_id = account_id
@@ -69,45 +78,74 @@ class QueryParameters:
         self.page_number = page_number
         self.page_size = page_size
 
-# Example Usage:
-# Define the connection string
-# connection_string = (
-#     "DRIVER={ODBC Driver 18 for SQL Server};"
-#     "Server=tcp:synw-smb-sfda-dev-ondemand.sql.azuresynapse.net,1433;"
-#     "DATABASE=smb-dev-sfda-synw-sqldb;"
-#     "UID=funcuser;"
-#     "PWD=Smuser@098!!!;"
-#     "Encrypt=yes;"
-#     "TrustServerCertificate=no;"
-#     "Connection Timeout=30;"
-# )
+    def transform(self):
+        start_year_param = f'Year={self.extract_year(self.date_start_monthyear)}' if self.date_start_monthyear != "*" else "Year=*"
+        end_year_param = f'Year={self.extract_year(self.date_end_monthyear)}' if self.date_end_monthyear != "*" else "Year=*"
+        start_month_param = f'Month={self.extract_month(self.date_start_monthyear)}' if self.date_start_monthyear != "*" else "Month=*"
+        end_month_param = f'Month={self.extract_month(self.date_end_monthyear)}' if self.date_end_monthyear != "*" else "Month=*"
 
-# # Create an instance of the SqlDataFetcher class
-# data_fetcher = SqlDataFetcher(connection_string)
+        output_params = {
+            'account_id_param': f'AccountId={self.account_id}',
+            'object_name': f'{self.object_name}',
+            'start_year_param': start_year_param,
+            'end_year_param': end_year_param,
+            'start_month_param': start_month_param,
+            'end_month_param': end_month_param,
+            'offset_param': self.page_number,
+            'fetch_next_param': self.page_size
+        }
+        return output_params
 
-# # Create an instance of the QueryParameters class
-# query_params = QueryParameters(
-#     account_id="0017X00001571soQAA",
-#     object_name="Payment",
-#     date_start_monthyear="2023",
-#     date_end_monthyear="2025",
-#     page_number=0,
-#     page_size=10
-# )
+    @staticmethod
+    def extract_year(date):
+        return date.split('/')[1].zfill(4) if date != "*" else "*"
 
-# try:
-#     # Fetch data using the QueryParameters object and set flag to 1
-#     data_result = data_fetcher.fetch_data(query_params, flag=1)
+    @staticmethod
+    def extract_month(date):
+        return date.split('/')[0].zfill(2) if date != "*" else "*"
 
-#     # Print or use data_result as needed
-#     print(data_result)
 
-# except ValueError as ve:
-#     # Handle the exception, print or log the error message
-#     print(ve)
-# except pyodbc.Error as e:
-#     # Handle other pyodbc errors
-#     print(f"PyODBC Error: {e}")
-# except Exception as ex:
-#     # Handle any other unexpected exceptions
-#     print(f"Unexpected Error: {ex}")
+# Example usage
+connection_string = (
+    "DRIVER={ODBC Driver 18 for SQL Server};"
+    "Server=tcp:synw-smb-sfda-dev-ondemand.sql.azuresynapse.net,1433;"
+    "DATABASE=smb-dev-sfda-synw-sqldb;"
+    "UID=funcuser;"
+    "PWD=Smuser@098!!!;"
+    "Encrypt=yes;"
+    "TrustServerCertificate=no;"
+    "Connection Timeout=30;"
+)
+
+# Create SqlDataFetcher instance
+sql_data_fetcher = SqlDataFetcher(connection_string)
+
+query_params = QueryParameters(
+    account_id="0017X00001571soQAA",
+    object_name="Service_Work_Order__c",
+    date_start_monthyear="1/2024",
+    date_end_monthyear="12/2025",
+    page_number=0,
+    page_size=2
+)
+query_params_data = query_params.transform()
+
+# Connect to the database
+sql_data_fetcher.connect()
+
+# Define your parameters
+params = query_params_data
+
+# Execute the SQL query with the flag set to 1
+result = sql_data_fetcher.execute_sql_query(params, flag=0)
+
+# Disconnect from the database
+sql_data_fetcher.disconnect()
+
+# Handle the result based on the flag value
+if result is True:
+    print("Query executed successfully. Data found.")
+elif result is False:
+    print("Query executed successfully. No data found.")
+else:
+    print(f"{result}")

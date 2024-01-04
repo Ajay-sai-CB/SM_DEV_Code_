@@ -2,8 +2,8 @@
 
 import azure.functions as func
 import json
-from validation import QueryParameters, Validation
-from sql_data_fetcher import SqlDataFetcher
+from validation import  Validation
+from sql_data_fetcher import SqlDataFetcher , QueryParameters 
 
 # Define the connection string
 connection_string = (
@@ -21,10 +21,12 @@ connection_string = (
 data_fetcher = SqlDataFetcher(connection_string)
 
 # FunctionApp initialization
-app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
+# app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
+# FunctionApp initialization without authentication
+app = func.FunctionApp()
 
 # HTTP trigger route
-@app.route(route="http_trigger", methods=["get"])
+@app.route(route="http_trigger")
 def http_trigger(req: func.HttpRequest) -> func.HttpResponse:
     try:
         # Validate 'Account__c' parameter presence
@@ -36,6 +38,8 @@ def http_trigger(req: func.HttpRequest) -> func.HttpResponse:
                 mimetype="application/json",
                 status_code=400
             )
+        # Establish database connection
+        data_fetcher.connect()    
 
         # Get query parameters
         query_params = QueryParameters(
@@ -51,7 +55,7 @@ def http_trigger(req: func.HttpRequest) -> func.HttpResponse:
         validator = Validation(query_params)
 
         # Handle Account ID Request if applicable
-        if query_params.object_name is None or query_params.object_name.lower() == 'none':
+        if query_params.object_name is None or query_params.object_name.lower() == None:
             result = handle_account_id_request(query_params)
 
         # Handle Complex Request with validations
@@ -95,14 +99,18 @@ def http_trigger(req: func.HttpRequest) -> func.HttpResponse:
             mimetype="application/json",
             status_code=500
         )
+    finally:
+        # Ensure to disconnect from the database after processing
+        data_fetcher.disconnect()
 
 # Handle Account ID Request
 def handle_account_id_request(query_params):
     if query_params.object_name is None or query_params.object_name.lower() == 'none':
         # If object_name is "None," set it to "Service_Work_Order__c"
         query_params.object_name = "Service_Work_Order__c"
+        query_params_data = query_params.transform()
 
-    if data_fetcher.fetch_data(query_params=query_params, flag=1):
+    if data_fetcher.execute_sql_query(params=query_params_data, flag=1):
         # Return a success message for existing data
         return f"Data for Account_id {query_params.account_id} exists in JSON data."
     else:
@@ -129,9 +137,9 @@ def handle_object_request(query_params, validator):
             "date_range": error_message_date_range
         }
         return {"status": "validation_failed", "error_messages": error_messages}
-
+    query_params_data = query_params.transform()
     # Fetch data using the QueryParameters object and set flag to 0
-    data_result = data_fetcher.fetch_data(query_params, flag=0)
+    data_result = data_fetcher.execute_sql_query(query_params_data, flag=0)
     if data_result:
         # Return the data if available
         return data_result
