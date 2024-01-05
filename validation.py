@@ -16,15 +16,6 @@ VALID_OBJECT_NAMES = [
     "Work_Order_Room__c"
 ]
 
-class QueryParameters:
-    def __init__(self, account_id, object_name, date_start_monthyear, date_end_monthyear, page_number, page_size):
-        self.account_id = account_id
-        self.object_name = object_name
-        self.date_start_monthyear = date_start_monthyear
-        self.date_end_monthyear = date_end_monthyear
-        self.page_number = page_number
-        self.page_size = page_size
-
 class Validation:
     def __init__(self, query_params):
         self.query_params = query_params
@@ -40,36 +31,16 @@ class Validation:
         return True, ""
 
     def validate_date_range(self):
-        try:
-            start_date = datetime.strptime(self.query_params.date_start_monthyear, "%m/%Y")
-            end_date = datetime.strptime(self.query_params.date_end_monthyear, "%m/%Y")
-        except ValueError:
-            return False, "Invalid date format. Please use MM/YYYY."
-
-        if start_date >= end_date:
-            return False, "Invalid date range. End date must be greater than start date."
-
-        return True, ""
-
-    def validate_date_start_monthyear(self):
-        if self.query_params.date_start_monthyear == '*':
+        if self.query_params.date_start_monthyear == '*' or self.query_params.date_end_monthyear == '*':
             return True, ""
 
         try:
             start_date = datetime.strptime(self.query_params.date_start_monthyear, "%m/%Y")
-        except ValueError:
-            return False, "Invalid date format. Please use MM/YYYY."
-        return True, ""
-
-    def validate_date_end_monthyear(self):
-        if self.query_params.date_end_monthyear == '*':
-            return True, ""
-
-        try:
             end_date = datetime.strptime(self.query_params.date_end_monthyear, "%m/%Y")
+            if start_date > end_date:
+                return False, "Start date must be earlier than end date."
         except ValueError:
             return False, "Invalid date format. Please use MM/YYYY."
-
         return True, ""
 
     def validate_page_number(self):

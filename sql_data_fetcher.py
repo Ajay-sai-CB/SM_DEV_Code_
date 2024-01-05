@@ -1,32 +1,24 @@
 import pyodbc
+import json
+from datetime import datetime
+from decimal import Decimal
+
+class CustomEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, (datetime, Decimal)):
+            return str(obj)
+        return super().default(obj)
 
 class SqlDataFetcher:
     def __init__(self, connection_string):
         self.connection_string = connection_string
-        self.conn = None
-
-    def connect(self):
-        # Connect to the SQL Server database
-        self.conn = pyodbc.connect(self.connection_string)
-
-    def disconnect(self):
-        # Close the database connection
-        if self.conn:
-            self.conn.close()
 
     def execute_sql_query(self, params, flag=0):
-        if not self.conn:
-            raise Exception("Database connection is not established. Call connect() method first.")
-
-        # Create a cursor
-        cursor = self.conn.cursor()
-
-        try:
-            print(params)
-            # Define your SQL query
-
-
-            query = f"""
+        with pyodbc.connect(self.connection_string) as conn:
+            with conn.cursor() as cursor:
+                try:
+                    # Define your SQL query
+                    query = f"""
                     SELECT *
                     FROM {params['object_name']}
                     WHERE
@@ -37,37 +29,22 @@ class SqlDataFetcher:
                     AccountID_p = '{params['account_id_param']}'
                     ORDER BY AccountId_p
                     OFFSET {params['offset_param']} ROWS FETCH NEXT {params['fetch_next_param']} ROWS ONLY;
-                """
+                """  # Your SQL query here
 
-            print(query)
+                    cursor.execute(query)
+                    rows = cursor.fetchall()
+                    # Check if rows are empty and return False if flag is set to 1
+                    if not rows:
+                        return False
+                    data = [dict(zip([column[0] for column in cursor.description], row)) for row in rows]
+                    json_data = json.dumps(data, cls=CustomEncoder)
+                    
 
- 
+                    # Return data or boolean based on the flag
+                    return json_data if flag == 0 else True
 
-            # Execute the query with parameters
-            
-            cursor.execute(query)
-
-            # Fetch the results
-            data = cursor.fetchall()
-            print(data)
-
-            # Check the flag and return data or error message based on the flag value
-            if flag == 1:
-                return bool(data)  # Return True if data is not empty, False otherwise
-            else:
-                return data
-
-        except Exception as e:
-            # Handle exceptions and return error message
-            error_message = f"Error executing SQL query: {str(e)}"
-            if flag == 1:
-                return error_message
-            else:
-                raise Exception(error_message)
-
-        finally:
-            # Close the cursor
-            cursor.close()
+                except Exception as e:
+                    raise Exception(f"Error executing SQL query: {str(e)}")
 
 class QueryParameters:
     def __init__(self, account_id, object_name, date_start_monthyear, date_end_monthyear, page_number, page_size):
@@ -105,47 +82,47 @@ class QueryParameters:
         return date.split('/')[0].zfill(2) if date != "*" else "*"
 
 
-# Example usage
-connection_string = (
-    "DRIVER={ODBC Driver 18 for SQL Server};"
-    "Server=tcp:synw-smb-sfda-dev-ondemand.sql.azuresynapse.net,1433;"
-    "DATABASE=smb-dev-sfda-synw-sqldb;"
-    "UID=funcuser;"
-    "PWD=Smuser@098!!!;"
-    "Encrypt=yes;"
-    "TrustServerCertificate=no;"
-    "Connection Timeout=30;"
-)
+# # Example usage
+# connection_string = (
+#     "DRIVER={ODBC Driver 18 for SQL Server};"
+#     "Server=tcp:synw-smb-sfda-dev-ondemand.sql.azuresynapse.net,1433;"
+#     "DATABASE=smb-dev-sfda-synw-sqldb;"
+#     "UID=funcuser;"
+#     "PWD=Smuser@098!!!;"
+#     "Encrypt=yes;"
+#     "TrustServerCertificate=no;"
+#     "Connection Timeout=30;"
+# )
 
-# Create SqlDataFetcher instance
-sql_data_fetcher = SqlDataFetcher(connection_string)
+# # Create SqlDataFetcher instance
+# sql_data_fetcher = SqlDataFetcher(connection_string)
 
-query_params = QueryParameters(
-    account_id="0017X00001571soQAA",
-    object_name="Service_Work_Order__c",
-    date_start_monthyear="1/2024",
-    date_end_monthyear="12/2025",
-    page_number=0,
-    page_size=2
-)
-query_params_data = query_params.transform()
+# query_params = QueryParameters(
+#     account_id="0017X00001571soQAA",
+#     object_name="Service_Work_Order__c",
+#     date_start_monthyear="1/2024",
+#     date_end_monthyear="12/2025",
+#     page_number=0,
+#     page_size=2
+# )
+# query_params_data = query_params.transform()
 
-# Connect to the database
-sql_data_fetcher.connect()
+# # Connect to the database
+# sql_data_fetcher.connect()
 
-# Define your parameters
-params = query_params_data
+# # Define your parameters
+# params = query_params_data
 
-# Execute the SQL query with the flag set to 1
-result = sql_data_fetcher.execute_sql_query(params, flag=0)
+# # Execute the SQL query with the flag set to 1
+# result = sql_data_fetcher.execute_sql_query(params, flag=0)
 
-# Disconnect from the database
-sql_data_fetcher.disconnect()
+# # Disconnect from the database
+# sql_data_fetcher.disconnect()
 
-# Handle the result based on the flag value
-if result is True:
-    print("Query executed successfully. Data found.")
-elif result is False:
-    print("Query executed successfully. No data found.")
-else:
-    print(f"{result}")
+# # Handle the result based on the flag value
+# if result is True:
+#     logging.info("Query executed successfully. Data found.")
+# elif result is False:
+#     logging.info("Query executed successfully. No data found.")
+# else:
+#     logging.info(f"{result}")

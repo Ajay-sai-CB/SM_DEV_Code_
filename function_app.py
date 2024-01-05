@@ -1,10 +1,12 @@
-# function_app.py
 
+# function_app.py
+ 
 import azure.functions as func
 import json
 from validation import  Validation
-from sql_data_fetcher import SqlDataFetcher , QueryParameters 
-
+from sql_data_fetcher import SqlDataFetcher , QueryParameters
+import logging
+ 
 # Define the connection string
 connection_string = (
     "DRIVER={ODBC Driver 18 for SQL Server};"
@@ -16,15 +18,15 @@ connection_string = (
     "TrustServerCertificate=no;"
     "Connection Timeout=30;"
 )
-
+ 
 # Create an instance of the SqlDataFetcher class
 data_fetcher = SqlDataFetcher(connection_string)
-
+ 
 # FunctionApp initialization
 # app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
 # FunctionApp initialization without authentication
 app = func.FunctionApp()
-
+ 
 # HTTP trigger route
 @app.route(route="http_trigger")
 def http_trigger(req: func.HttpRequest) -> func.HttpResponse:
@@ -32,14 +34,11 @@ def http_trigger(req: func.HttpRequest) -> func.HttpResponse:
         # Validate 'Account__c' parameter presence
         account_id = req.params.get('Account__c')
         if not account_id:
-            # Return a 400 Bad Request response for missing 'Account__c' parameter
             return func.HttpResponse(
                 json.dumps({"message": "Account__c is required."}),
                 mimetype="application/json",
                 status_code=400
             )
-        # Establish database connection
-        data_fetcher.connect()    
 
         # Get query parameters
         query_params = QueryParameters(
@@ -51,25 +50,23 @@ def http_trigger(req: func.HttpRequest) -> func.HttpResponse:
             page_size=int(req.params.get('Page_Size', 10))
         )
 
-        # Initialize Validation with query parameters
+        # Initialize Validation
         validator = Validation(query_params)
 
         # Handle Account ID Request if applicable
-        if query_params.object_name is None or query_params.object_name.lower() == None:
+        if query_params.object_name is None or query_params.object_name.lower() == 'none':
             result = handle_account_id_request(query_params)
 
         # Handle Complex Request with validations
         else:
-            validation_result = handle_object_request(query_params, validator)
-
-            if validation_result["status"] == "validation_failed":
-                # Return a 400 Bad Request response for validation failure
+            validation_result = validate_query_params(validator)
+            if validation_result is not None:
                 return func.HttpResponse(
-                    json.dumps({"message": "Validation failed", "errors": validation_result["error_messages"]}),
+                    json.dumps({"message": "Validation failed", "errors": validation_result}),
                     mimetype="application/json",
                     status_code=400
                 )
-            result = validation_result
+            result = execute_query(query_params)
 
         query_result = {
             "account_id": query_params.account_id,
@@ -78,14 +75,12 @@ def http_trigger(req: func.HttpRequest) -> func.HttpResponse:
             "date_end_monthyear": query_params.date_end_monthyear,
             "page_number": query_params.page_number,
             "page_size": query_params.page_size,
-            "data": [result]  # Add your actual query result here
+            "data": result  # Add your actual query result here
         }
 
-        # Return a 200 OK response with the query result
         return func.HttpResponse(json.dumps(query_result), mimetype="application/json", status_code=200)
 
     except ValueError as ve:
-        # Handle specific validation errors with a 400 Bad Request response
         return func.HttpResponse(
             json.dumps({"message": str(ve)}),
             mimetype="application/json",
@@ -93,56 +88,66 @@ def http_trigger(req: func.HttpRequest) -> func.HttpResponse:
         )
 
     except Exception as e:
-        # Log the exception and return a 500 Internal Server Error response
         return func.HttpResponse(
             json.dumps({"message": f"An unexpected error occurred. {str(e)}"}),
             mimetype="application/json",
             status_code=500
         )
-    finally:
-        # Ensure to disconnect from the database after processing
-        data_fetcher.disconnect()
-
+ 
 # Handle Account ID Request
 def handle_account_id_request(query_params):
     if query_params.object_name is None or query_params.object_name.lower() == 'none':
         # If object_name is "None," set it to "Service_Work_Order__c"
         query_params.object_name = "Service_Work_Order__c"
         query_params_data = query_params.transform()
-
+ 
     if data_fetcher.execute_sql_query(params=query_params_data, flag=1):
         # Return a success message for existing data
-        return f"Data for Account_id {query_params.account_id} exists in JSON data."
+        return f"Data for Account_id {query_params.account_id} exists in Database."
     else:
         # Return a message for no data found
-        return f"No data found for Account_id {query_params.account_id} in JSON data."
+        return f"No data found for Account_id {query_params.account_id} in Database."
+ 
+def validate_query_params(validator):
+    validation_results = {
+        "account_id": validator.validate_account_id(),
+        "object_name": validator.validate_object_name(),
+        "date_range": validator.validate_date_range(),
+        "page_number": validator.validate_page_number(),
+        "page_size": validator.validate_page_size()
+    }
 
-# Handle Complex Request
-def handle_object_request(query_params, validator):
-    # Validate parameters using the Validation class
-    is_valid_account_id, error_message_account_id = validator.validate_account_id()
-    is_valid_object_name, error_message_object_name = validator.validate_object_name()
-    is_valid_page_number, error_message_page_number = validator.validate_page_number()
-    is_valid_page_size, error_message_page_size = validator.validate_page_size()
-    is_valid_date_range, error_message_date_range = validator.validate_date_range()
+    errors = {key: value[1] for key, value in validation_results.items() if not value[0]}
+    if errors:
+        return errors
+    return None
 
-    # Check if any validation failed
-    if not all([is_valid_account_id, is_valid_object_name, is_valid_page_number, is_valid_page_size, is_valid_date_range]):
-        # Return validation error message
-        error_messages = {
-            "account_id": error_message_account_id,
-            "object_name": error_message_object_name,
-            "page_number": error_message_page_number,
-            "page_size": error_message_page_size,
-            "date_range": error_message_date_range
-        }
-        return {"status": "validation_failed", "error_messages": error_messages}
-    query_params_data = query_params.transform()
-    # Fetch data using the QueryParameters object and set flag to 0
-    data_result = data_fetcher.execute_sql_query(query_params_data, flag=0)
-    if data_result:
-        # Return the data if available
-        return data_result
-    else:
-        # Return a message for no data found
-        return f"No data found for Account_id {query_params.account_id} in JSON data."
+def execute_query(query_params):
+    try:
+        # Transform query parameters
+        query_params_data = query_params.transform()
+
+        # Fetch data using the SqlDataFetcher instance with flag set to 0
+        data_result = data_fetcher.execute_sql_query(query_params_data, flag=0)
+        
+        # Log the type and content of the data result for debugging
+        logging.info(f"Data result type: {type(data_result)}")
+        logging.info("Data result content:")
+        logging.info(data_result)
+
+        # Check if the result contains data
+        if data_result:
+            logging.info("Data found, processing...")
+            return data_result
+        else:
+            # Construct and return a message for no data found
+            no_data_message = f"No data found for Account_id {query_params.account_id} in Database ."
+            logging.info(no_data_message)
+            return no_data_message
+
+    except Exception as ex:
+        # Log the exception for debugging purposes
+        error_message = f"Error in execute_query: {str(ex)}"
+        logging.error(error_message)
+        # Optionally, you can decide whether to re-raise the exception or handle it differently
+        raise Exception(error_message)
