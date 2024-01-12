@@ -20,7 +20,7 @@ class Validation:
 
     def validate_account_id(self):
         if not self.query_params.account_id:
-            return False, "Account__c is required."
+            return False, "Account_Id is required."
         return True, ""
 
     def validate_object_name(self):
@@ -38,6 +38,18 @@ class Validation:
 
             if start_date > end_date:
                 return False, "Start date must be earlier than end date."
+
+            # Check if the month and day are valid for a month with 30 days
+            if start_date.month == 2 and start_date.day > 28:
+                return False, "Invalid start date for February."
+            if end_date.month == 2 and end_date.day > 28:
+                return False, "Invalid end date for February."
+                
+            if start_date.month in [4, 6, 9, 11] and start_date.day > 30:
+                return False, f"Invalid start date for {start_date.strftime('%B')}."
+            if end_date.month in [4, 6, 9, 11] and end_date.day > 30:
+                return False, f"Invalid end date for {end_date.strftime('%B')}."
+
         except ValueError:
             return False, "Invalid date format. Please use DD/MM/YYYY."
         return True, ""
