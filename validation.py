@@ -1,5 +1,3 @@
-# Updated Validation_code.py
-
 from datetime import datetime
 
 VALID_OBJECT_NAMES = [
@@ -31,16 +29,17 @@ class Validation:
         return True, ""
 
     def validate_date_range(self):
-        if self.query_params.date_start_monthyear == '*' or self.query_params.date_end_monthyear == '*':
+        if self.query_params.date_start_daymonthyear == '*' or self.query_params.date_end_daymonthyear == '*':
             return True, ""
 
         try:
-            start_date = datetime.strptime(self.query_params.date_start_monthyear, "%m/%Y")
-            end_date = datetime.strptime(self.query_params.date_end_monthyear, "%m/%Y")
+            start_date = datetime.strptime(self.query_params.date_start_daymonthyear, "%Y-%m-%d")
+            end_date = datetime.strptime(self.query_params.date_end_daymonthyear, "%Y-%m-%d")
+
             if start_date > end_date:
                 return False, "Start date must be earlier than end date."
         except ValueError:
-            return False, "Invalid date format. Please use MM/YYYY."
+            return False, "Invalid date format. Please use DD/MM/YYYY."
         return True, ""
 
     def validate_page_number(self):
