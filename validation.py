@@ -51,7 +51,7 @@ class Validation:
                 return False, f"Invalid end date for {end_date.strftime('%B')}."
 
         except ValueError:
-            return False, "Invalid date format. Please use DD/MM/YYYY."
+            return False, "Invalid date format. Please use YYYY/MM/DD."
         return True, ""
 
     def validate_page_number(self):
